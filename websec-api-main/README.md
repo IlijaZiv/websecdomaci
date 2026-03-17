@@ -1,71 +1,68 @@
-## MySQL
-Make sure MySQL server is running: \
-1. Check if the container is running: `docker ps`
-2. If the container isn't running, check if it exists: `docker ps -a`
-3. If the container exists, start it: `docker start container_id`
-4. If the container doesn't exist run:
-   `docker volume create websec_mysql_data`
+# websec-api
 
-   `docker run -d \
-     --name websec-mysql56 \
-     -p 3308:3306 \
-     -e MYSQL_ROOT_PASSWORD=rootpassword \
-     -e MYSQL_DATABASE=websec \
-     -v websec_mysql_data:/var/lib/mysql \
-     mysql:5.6`
+Spring Boot REST API за websec апликацију.
 
-## Build websec-api
-`mvn clean package`
+## Покретање
 
-`java -jar target/web-security.jar`
+Исто као на часу:
 
-## Import data
-1. `docker exec -it websec-mysql56 mysql -uroot -prootpassword websec`
-2. `use websec;`
-3. Import data
+```bash
+./mvnw clean package -DskipTests
+java -jar target/web-security.jar
+```
 
-    
-    INSERT INTO user ( 
-    created, 
-    updated, 
-    email, 
-    first_name, 
-    last_name, 
-    password 
-    ) 
-    VALUES ( 
-    NOW(6), 
-    NOW(6), 
-    'maja@maja.com', 
-    'Maja', 
-    'Maja', 
-    '$2a$12$u/WmgPhjwQaI4582VG5p3e75fl/FzbOWlaIPQrZDKD685kdEftuAy' 
-    ); 
+Или преко systemd сервиса:
 
-    INSERT INTO movie ( 
-    imdb_score, 
-    running_time, 
-    year, 
-    created, 
-    updated, 
-    description, 
-    director, 
-    title 
-    ) 
-    VALUES 
-    (7, 124, 2012, NOW(), NOW(), 'Alien exploration mission', 'Ridley Scott', 'Prometheus'), 
-    (8, 117, 1982, NOW(), NOW(), 'A blade runner must pursue and terminate four replicants who stole a ship in space', 'Ridley Scott', 'Blade Runner'), 
-    (8, 148, 2010, NOW(), NOW(), 'Dream within a dream', 'Christopher Nolan', 'Inception'); 
+```bash
+sudo systemctl start websec-api
+```
 
-## Run
-`java -jar target/web-security.jar`
+## Безбедносне измене (грана `vuln/idor`)
 
-## Or run websec-api service
-1. Place the websec-api.service in /etc/systemd/system \
-2. Run the service \
-`systemctl start websec_api.service`
+### 1. IDOR — Broken Access Control
 
-## Status and Logs
+**Проблем:** Сваки аутентификовани корисник могао је да приступи филму по произвољном ID-у (`GET /movie/{id}`), без обзира чији је филм.
 
-`systemctl start websec_api.service` \
-`journalctl -u websec_api -f`
+**Решење:**
+- `Movie` ентитет добио поље `user_id` (FK ка `User`) — Hibernate аутоматски додаје колону при старту (`ddl-auto=update`).
+- `MovieService.getMovieById(id, requestingUserId)` проверава власништво пре него što врати ресурс.
+- Ако филм постоји али припада другом кориснику → **403 Forbidden**.
+- Ако филм не постоји → **404 Not Found**.
+- Филмови без власника (`user_id = NULL`) доступни су свим корисницима (backward compatibility).
+
+Погођени фајлови:
+- `persistence/Movie.java`
+- `persistence/MovieRepository.java`
+- `service/MovieService.java`
+- `facade/MovieFacade.java`
+- `api/MovieController.java`
+- `exception/WebSecForbiddenException.java` *(нов)*
+- `exception/GlobalExceptionHandler.java` *(нов)*
+
+---
+
+### 2. Брут-форс / dictionary attack заштита
+
+**Метода:** Ескалирајућа блокада налога (in-memory, по email адреси).
+
+| Узастопних неуспелих покушаја | Блокада |
+|-------------------------------|---------|
+| 1–2                           | нема    |
+| 3                             | 5 секунди |
+| 4                             | 15 секунди |
+| 5                             | 30 секунди |
+| 6+                            | 60 секунди |
+
+Након успешне пријаве бројач се **ресетује**.
+
+API враћа **HTTP 429 Too Many Requests** са хедером `Retry-After` и пољем `retryAfterSeconds` у телу одговора.
+
+UI приказује одбројавање у реалном времену и онемогућава дугме за пријаву током блокаде.
+
+> **Напомена:** Бројачи су чувани in-memory. При рестарту апликације се ресетују.
+
+Погођени фајлови:
+- `service/LoginAttemptService.java` *(нов)*
+- `facade/AuthenticationFacade.java`
+- `exception/WebSecTooManyAttemptsException.java` *(нов)*
+- `exception/GlobalExceptionHandler.java` *(нов)*

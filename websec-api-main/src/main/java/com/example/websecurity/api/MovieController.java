@@ -32,7 +32,9 @@ public class MovieController {
     ) {
         User user = (User) authentication.getPrincipal();
         log.info("Movie Controller: User {} requested a movie with id {}", user.getEmail(), id);
-        MovieResponse movieResponse = movieFacade.getMovieById(id);
+        // IDOR fix: the authenticated user is passed to the facade so only
+        // the movie's owner can retrieve it.
+        MovieResponse movieResponse = movieFacade.getMovieById(id, user);
         return ResponseEntity.ok(movieResponse);
     }
 }

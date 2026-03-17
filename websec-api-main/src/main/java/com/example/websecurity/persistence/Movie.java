@@ -29,6 +29,14 @@ public class Movie {
     @Column(name = "imdb_score")
     private Integer imdbScore;
 
+    /**
+     * IDOR fix: each movie is associated with its owner.
+     * Only the owning user may read this movie.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = true)
+    private User user;
+
     @Column(nullable = false)
     private ZonedDateTime created;
 
