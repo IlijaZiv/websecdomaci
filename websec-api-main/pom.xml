@@ -28,6 +28,15 @@
     </scm>
     <properties>
         <java.version>17</java.version>
+        <!--
+            Fix vuln/log4j (Log4Shell - CVE-2021-44228):
+            The vulnerable version used on the class vuln/log4j branch was 2.14.1.
+            Versions < 2.17.1 allow JNDI lookup substitution inside log messages,
+            enabling remote code execution when user-supplied strings are logged.
+            Setting this property forces Spring Boot to use the patched version.
+            All versions >= 2.17.1 have JNDI lookups disabled by default.
+        -->
+        <log4j2.version>2.17.1</log4j2.version>
     </properties>
     <dependencies>
         <dependency>
@@ -86,6 +95,13 @@
             <artifactId>jjwt-impl</artifactId>
             <version>0.11.5</version>
             <scope>runtime</scope>
+        </dependency>
+
+
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <version>2.17.1</version>
         </dependency>
 
         <dependency>
